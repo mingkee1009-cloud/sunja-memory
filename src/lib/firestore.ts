@@ -15,7 +15,6 @@ import { analyzeMemory } from "./analyzeMemory";
 
 const COL = "memories";
 
-// ── 메모 저장 (자동분류 포함) ─────────────────────────────────
 export async function createMemory(rawText: string): Promise<string> {
   console.log("createMemory called", rawText);
   const analysis = analyzeMemory(rawText);
@@ -43,7 +42,20 @@ export async function createMemory(rawText: string): Promise<string> {
   }
 }
 
-// ── 캡쳐 메모 저장 ────────────────────────────────────────────
+export async function updateMemory(id: string, rawText: string): Promise<void> {
+  const analysis = analyzeMemory(rawText);
+  await updateDoc(doc(db, COL, id), {
+    rawText,
+    summary:   analysis.summary,
+    category:  analysis.category,
+    keywords:  analysis.keywords,
+    place:     analysis.place,
+    todo:      analysis.todo,
+    priority:  analysis.priority,
+    updatedAt: serverTimestamp(),
+  });
+}
+
 export async function createCaptureMemo(
   title: string,
   description: string,
@@ -70,7 +82,6 @@ export async function createCaptureMemo(
   return docRef.id;
 }
 
-// ── 링크 저장 ─────────────────────────────────────────────────
 export async function createLinkMemory(url: string, description: string): Promise<string> {
   const rawText = description.trim()
     ? `${url.trim()} ${description.trim()}`
@@ -94,14 +105,12 @@ export async function createLinkMemory(url: string, description: string): Promis
   return docRef.id;
 }
 
-// ── 전체 메모 최신순 조회 ─────────────────────────────────────
 export async function getMemories(): Promise<Memory[]> {
   const q = query(collection(db, COL), orderBy("createdAt", "desc"));
   const snap = await getDocs(q);
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Memory));
 }
 
-// ── 완료 토글 ─────────────────────────────────────────────────
 export async function toggleMemoryDone(id: string, isDone: boolean): Promise<void> {
   await updateDoc(doc(db, COL, id), {
     isDone,
@@ -109,22 +118,6 @@ export async function toggleMemoryDone(id: string, isDone: boolean): Promise<voi
   });
 }
 
-// ── 메모 수정 ─────────────────────────────────────────────────
-export async function updateMemory(id: string, rawText: string): Promise<void> {
-  const analysis = analyzeMemory(rawText);
-  await updateDoc(doc(db, COL, id), {
-    rawText,
-    summary:  analysis.summary,
-    category: analysis.category,
-    keywords: analysis.keywords,
-    place:    analysis.place,
-    todo:     analysis.todo,
-    priority: analysis.priority,
-    updatedAt: serverTimestamp(),
-  });
-}
-
-// ── 삭제 ──────────────────────────────────────────────────────
 export async function deleteMemory(id: string): Promise<void> {
   await deleteDoc(doc(db, COL, id));
 }
