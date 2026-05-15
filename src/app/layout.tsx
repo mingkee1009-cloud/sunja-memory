@@ -1,16 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import { SwRegistration } from "@/components/SwRegistration";
 
 export const metadata: Metadata = {
   title: "기억창고",
   description: "소중한 기억을 간직하는 나만의 공간",
-  manifest: "/manifest.json",
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: "black-translucent",
-    title: "기억창고",
-  },
   openGraph: {
     title: "기억창고",
     description: "소중한 기억을 간직하는 나만의 공간",
@@ -57,7 +50,6 @@ export default function RootLayout({
       </head>
       <body className="min-h-full antialiased" suppressHydrationWarning>
         {children}
-        <SwRegistration />
       </body>
     </html>
   );

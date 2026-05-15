@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, User } from "firebase/auth";
@@ -55,6 +55,8 @@ export default function Home() {
 
     return () => unsubscribe();
   }, []);
+
+
 
   const login = async () => {
     const provider = new GoogleAuthProvider();
