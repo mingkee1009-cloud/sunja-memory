@@ -12,29 +12,19 @@ import {
 import { signInWithGoogle, signOut, subscribeAuth, User } from "@/lib/auth";
 import { Memory } from "@/types/memory";
 
-// ── Web Speech API 타입 ───────────────────────────────────────
-interface SpeechRecognitionEvent {
-  results: SpeechRecognitionResultList;
-}
-interface SpeechRecognitionErrorEvent {
-  error: string;
-}
-interface SpeechRecognitionInstance {
+// ── Web Speech API (window as any로 접근 — declare global 충돌 방지) ──
+type SpeechRecognitionInstance = {
   lang: string;
   continuous: boolean;
   interimResults: boolean;
-  onresult: ((e: SpeechRecognitionEvent) => void) | null;
-  onerror: ((e: SpeechRecognitionErrorEvent) => void) | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  onresult: ((e: any) => void) | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  onerror: ((e: any) => void) | null;
   onend: (() => void) | null;
   start: () => void;
   stop: () => void;
-}
-declare global {
-  interface Window {
-    SpeechRecognition?: new () => SpeechRecognitionInstance;
-    webkitSpeechRecognition?: new () => SpeechRecognitionInstance;
-  }
-}
+};
 
 // ── 카테고리 ─────────────────────────────────────────────────
 const CATEGORIES = ["전체", "쇼핑", "미모마켓", "콘텐츠", "AI자동화", "기타"] as const;
@@ -102,7 +92,9 @@ export default function HomePage() {
 
   // ── 음성 API 초기화 (useEffect 이후에만 window 접근) ──────
   useEffect(() => {
-    const SR = window.SpeechRecognition ?? window.webkitSpeechRecognition;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any;
+    const SR: (new () => SpeechRecognitionInstance) | undefined = w.SpeechRecognition ?? w.webkitSpeechRecognition;
     if (!SR) return;
     setVoiceSupported(true);
 
@@ -111,7 +103,8 @@ export default function HomePage() {
     rec.continuous = false;
     rec.interimResults = true;
 
-    rec.onresult = (e: SpeechRecognitionEvent) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rec.onresult = (e: any) => {
       let final = "";
       let inter = "";
       for (let i = 0; i < e.results.length; i++) {
@@ -127,7 +120,8 @@ export default function HomePage() {
       }
     };
 
-    rec.onerror = (e: SpeechRecognitionErrorEvent) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rec.onerror = (e: any) => {
       if (e.error !== "no-speech") alert("음성 인식 오류: " + e.error);
       setListening(false);
       setInterim("");
