@@ -13,13 +13,19 @@ import { db } from "./firebase";
 import { Memory } from "@/types/memory";
 import { analyzeMemory } from "./analyzeMemory";
 
-const COL = "memories";
+function memCol(uid: string) {
+  return collection(db, "users", uid, "memories");
+}
 
-export async function createMemory(rawText: string): Promise<string> {
+function memDoc(uid: string, id: string) {
+  return doc(db, "users", uid, "memories", id);
+}
+
+export async function createMemory(uid: string, rawText: string): Promise<string> {
   console.log("createMemory called", rawText);
   const analysis = analyzeMemory(rawText);
   try {
-    const docRef = await addDoc(collection(db, COL), {
+    const docRef = await addDoc(memCol(uid), {
       rawText,
       summary:    analysis.summary,
       category:   analysis.category,
@@ -42,9 +48,9 @@ export async function createMemory(rawText: string): Promise<string> {
   }
 }
 
-export async function updateMemory(id: string, rawText: string): Promise<void> {
+export async function updateMemory(uid: string, id: string, rawText: string): Promise<void> {
   const analysis = analyzeMemory(rawText);
-  await updateDoc(doc(db, COL, id), {
+  await updateDoc(memDoc(uid, id), {
     rawText,
     summary:   analysis.summary,
     category:  analysis.category,
@@ -56,68 +62,19 @@ export async function updateMemory(id: string, rawText: string): Promise<void> {
   });
 }
 
-export async function createCaptureMemo(
-  title: string,
-  description: string,
-  sourceUrl: string
-): Promise<string> {
-  const parts = [title.trim(), description.trim(), sourceUrl.trim()].filter(Boolean);
-  const rawText = parts.join(" ");
-  const analysis = analyzeMemory(rawText);
-  const docRef = await addDoc(collection(db, COL), {
-    rawText,
-    summary:    analysis.summary,
-    category:   analysis.category,
-    keywords:   analysis.keywords,
-    place:      analysis.place,
-    todo:       analysis.todo,
-    priority:   analysis.priority,
-    sourceType: "image",
-    url:        sourceUrl.trim(),
-    dueDate:    null,
-    isDone:     false,
-    createdAt:  serverTimestamp(),
-    updatedAt:  serverTimestamp(),
-  });
-  return docRef.id;
-}
-
-export async function createLinkMemory(url: string, description: string): Promise<string> {
-  const rawText = description.trim()
-    ? `${url.trim()} ${description.trim()}`
-    : url.trim();
-  const analysis = analyzeMemory(rawText);
-  const docRef = await addDoc(collection(db, COL), {
-    rawText,
-    summary:    analysis.summary,
-    category:   analysis.category,
-    keywords:   analysis.keywords,
-    place:      analysis.place,
-    todo:       analysis.todo,
-    priority:   analysis.priority,
-    sourceType: "link",
-    url:        url.trim(),
-    dueDate:    null,
-    isDone:     false,
-    createdAt:  serverTimestamp(),
-    updatedAt:  serverTimestamp(),
-  });
-  return docRef.id;
-}
-
-export async function getMemories(): Promise<Memory[]> {
-  const q = query(collection(db, COL), orderBy("createdAt", "desc"));
+export async function getMemories(uid: string): Promise<Memory[]> {
+  const q = query(memCol(uid), orderBy("createdAt", "desc"));
   const snap = await getDocs(q);
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Memory));
 }
 
-export async function toggleMemoryDone(id: string, isDone: boolean): Promise<void> {
-  await updateDoc(doc(db, COL, id), {
+export async function toggleMemoryDone(uid: string, id: string, isDone: boolean): Promise<void> {
+  await updateDoc(memDoc(uid, id), {
     isDone,
     updatedAt: serverTimestamp(),
   });
 }
 
-export async function deleteMemory(id: string): Promise<void> {
-  await deleteDoc(doc(db, COL, id));
+export async function deleteMemory(uid: string, id: string): Promise<void> {
+  await deleteDoc(memDoc(uid, id));
 }
