@@ -109,6 +109,21 @@ export async function toggleMemoryDone(id: string, isDone: boolean): Promise<voi
   });
 }
 
+// ── 메모 수정 ─────────────────────────────────────────────────
+export async function updateMemory(id: string, rawText: string): Promise<void> {
+  const analysis = analyzeMemory(rawText);
+  await updateDoc(doc(db, COL, id), {
+    rawText,
+    summary:  analysis.summary,
+    category: analysis.category,
+    keywords: analysis.keywords,
+    place:    analysis.place,
+    todo:     analysis.todo,
+    priority: analysis.priority,
+    updatedAt: serverTimestamp(),
+  });
+}
+
 // ── 삭제 ──────────────────────────────────────────────────────
 export async function deleteMemory(id: string): Promise<void> {
   await deleteDoc(doc(db, COL, id));
