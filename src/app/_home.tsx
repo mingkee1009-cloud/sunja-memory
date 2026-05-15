@@ -137,22 +137,25 @@ export default function Home() {
   };
 
   const startVoiceInput = () => {
-    const SpeechRecognition =
-      (window as { SpeechRecognition?: new () => SpeechRecognition }).SpeechRecognition ||
-      (window as { webkitSpeechRecognition?: new () => SpeechRecognition }).webkitSpeechRecognition;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SR: (new () => any) | undefined =
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
-    if (!SpeechRecognition) {
+    if (!SR) {
       alert("이 브라우저는 음성입력을 지원하지 않습니다.");
       return;
     }
 
-    const recognition = new SpeechRecognition();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const recognition: any = new SR();
     recognition.lang = "ko-KR";
     recognition.interimResults = false;
     recognition.continuous = false;
 
     recognition.onstart = () => setListening(true);
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognition.onresult = (event: any) => {
       const transcript = event.results[0][0].transcript;
       setText((prev) => (prev ? `${prev} ${transcript}` : transcript));
     };
