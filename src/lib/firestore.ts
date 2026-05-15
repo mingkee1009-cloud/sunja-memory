@@ -6,7 +6,6 @@ import {
   deleteDoc,
   getDocs,
   query,
-  where,
   orderBy,
   serverTimestamp,
 } from "firebase/firestore";
@@ -23,30 +22,23 @@ function memDoc(uid: string, id: string) {
 }
 
 export async function createMemory(uid: string, rawText: string): Promise<string> {
-  console.log("createMemory called", rawText);
   const analysis = analyzeMemory(rawText);
-  try {
-    const docRef = await addDoc(memCol(uid), {
-      rawText,
-      summary:    analysis.summary,
-      category:   analysis.category,
-      keywords:   analysis.keywords,
-      place:      analysis.place,
-      todo:       analysis.todo,
-      priority:   analysis.priority,
-      sourceType: "text",
-      url:        "",
-      dueDate:    null,
-      isDone:     false,
-      createdAt:  serverTimestamp(),
-      updatedAt:  serverTimestamp(),
-    });
-    console.log("addDoc success", docRef.id);
-    return docRef.id;
-  } catch (error) {
-    console.error("addDoc failed", error);
-    throw error;
-  }
+  const docRef = await addDoc(memCol(uid), {
+    rawText,
+    summary:    analysis.summary,
+    category:   analysis.category,
+    keywords:   analysis.keywords,
+    place:      analysis.place,
+    todo:       analysis.todo,
+    priority:   analysis.priority,
+    sourceType: "text",
+    url:        "",
+    dueDate:    null,
+    isDone:     false,
+    createdAt:  serverTimestamp(),
+    updatedAt:  serverTimestamp(),
+  });
+  return docRef.id;
 }
 
 export async function updateMemory(uid: string, id: string, rawText: string): Promise<void> {
@@ -79,36 +71,3 @@ export async function toggleMemoryDone(uid: string, id: string, isDone: boolean)
 export async function deleteMemory(uid: string, id: string): Promise<void> {
   await deleteDoc(memDoc(uid, id));
 }
-
-// root memories -> users/{uid}/memories migration
-export async function migrateRootMemories(uid: string): Promise<number> {
-  const rootSnap = await getDocs(collection(db, "memories"));
-
-  if (rootSnap.empty) return 0;
-
-  let count = 0;
-  const dest = memCol(uid);
-
-  for (const rootDoc of rootSnap.docs) {
-    // duplicate check: skip if already imported
-    const dupQ = query(dest, where("importedFromRootId", "==", rootDoc.id));
-    const dupSnap = await getDocs(dupQ);
-    if (!dupSnap.empty) {
-      console.log("skip duplicate:", rootDoc.id);
-      continue;
-    }
-
-    const data = rootDoc.data();
-    await addDoc(dest, {
-      ...data,
-      importedFromRootId: rootDoc.id,
-      importedFromRoot:   true,
-      importedAt:         serverTimestamp(),
-    });
-    count++;
-  }
-
-  return count;
-}
-
-export { migrateRootMemories as importRootMemories };
