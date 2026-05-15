@@ -7,7 +7,7 @@
   "display": "standalone",
   "orientation": "portrait",
   "theme_color": "#7c3aed",
-  "background_color": "#f5f3ff",
+  "background_color": "#ffffff",
   "lang": "ko",
   "icons": [
     {
@@ -30,5 +30,8 @@
     }
   ],
   "screenshots": [],
-  "categories": ["productivity", "utilities"]
+  "categories": [
+    "productivity",
+    "utilities"
+  ]
 }

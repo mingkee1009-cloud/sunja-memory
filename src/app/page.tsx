@@ -135,9 +135,12 @@ export default function HomePage() {
     <div style={{ maxWidth: 480, margin: "0 auto", padding: "1.5rem 1rem", fontFamily: "sans-serif" }}>
 
       {/* 헤더 */}
-      <h1 style={{ fontSize: "1.5rem", fontWeight: 700, marginBottom: "1.5rem", color: "#7c3aed" }}>
+      <h1 style={{ fontSize: "1.5rem", fontWeight: 700, marginBottom: "0.5rem", color: "#7c3aed" }}>
         기억창고
       </h1>
+      <p style={{ fontSize: "0.8rem", color: "#9ca3af", marginBottom: "1.25rem" }}>
+        홈화면에 추가하면 앱처럼 사용할 수 있어요
+      </p>
 
       {/* 수정 중 배너 */}
       {isEditing && (
