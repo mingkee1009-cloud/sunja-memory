@@ -78,3 +78,27 @@ export async function toggleMemoryDone(uid: string, id: string, isDone: boolean)
 export async function deleteMemory(uid: string, id: string): Promise<void> {
   await deleteDoc(memDoc(uid, id));
 }
+
+// ── 루트 memories → users/{uid}/memories 마이그레이션 ────────
+// 사용 후 이 함수와 버튼을 제거하려면 여기서부터 아래 주석까지 삭제
+export async function migrateRootMemories(uid: string): Promise<number> {
+  const rootSnap = await getDocs(collection(db, "memories"));
+
+  if (rootSnap.empty) return 0;
+
+  let count = 0;
+  const dest = memCol(uid);
+
+  for (const rootDoc of rootSnap.docs) {
+    const data = rootDoc.data();
+    await addDoc(dest, {
+      ...data,
+      importedFromRoot: true,
+      importedAt: serverTimestamp(),
+    });
+    count++;
+  }
+
+  return count;
+}
+// ── 마이그레이션 함수 끝 ──────────────────────────────────────

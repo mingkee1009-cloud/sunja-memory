@@ -7,6 +7,7 @@ import {
   updateMemory,
   deleteMemory,
   toggleMemoryDone,
+  migrateRootMemories,
 } from "@/lib/firestore";
 import { signInWithGoogle, signOut, subscribeAuth, User } from "@/lib/auth";
 import { Memory } from "@/types/memory";
@@ -75,6 +76,9 @@ export default function HomePage() {
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<CategoryFilter>("전체");
   const [editingId, setEditingId] = useState<string | null>(null);
+  // ── 마이그레이션 상태 (사용 후 제거 가능) ──
+  const [migrating, setMigrating] = useState(false);
+  // ── 마이그레이션 상태 끝 ──
 
   // 음성
   const [voiceSupported, setVoiceSupported] = useState(false);
@@ -229,6 +233,23 @@ export default function HomePage() {
     try { await signOut(); setMemories([]); }
     catch (e) { alert(e instanceof Error ? e.message : "로그아웃 실패"); }
   }
+
+  // ── 마이그레이션 핸들러 (사용 후 제거 가능) ──────────────
+  async function handleMigrate() {
+    if (!user) return;
+    if (!confirm("루트 memories 컬렉션의 메모를 내 계정으로 가져올까요?")) return;
+    setMigrating(true);
+    try {
+      const count = await migrateRootMemories(user.uid);
+      alert(count > 0 ? `기존 메모 가져오기 완료 (${count}개)` : "가져올 메모가 없어요");
+      if (count > 0) await load(user.uid);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "가져오기 실패");
+    } finally {
+      setMigrating(false);
+    }
+  }
+  // ── 마이그레이션 핸들러 끝 ───────────────────────────────
 
   // ── 필터 ─────────────────────────────────────────────────
   const displayed = useMemo(() => {
@@ -389,6 +410,17 @@ export default function HomePage() {
           >
             {saving ? "처리 중..." : isEditing ? "수정 완료" : "저장하기"}
           </button>
+
+          {/* ── 마이그레이션 버튼 (사용 후 이 블록 삭제 가능) ── */}
+          <button
+            type="button"
+            onClick={handleMigrate}
+            disabled={migrating}
+            style={{ marginTop: "0.5rem", width: "100%", padding: "0.6rem", fontSize: "0.85rem", fontWeight: 600, color: "#6b7280", background: "#f3f4f6", border: "1px dashed #d1d5db", borderRadius: "0.75rem", cursor: migrating ? "not-allowed" : "pointer", opacity: migrating ? 0.6 : 1 }}
+          >
+            {migrating ? "가져오는 중..." : "📦 기존 메모 가져오기"}
+          </button>
+          {/* ── 마이그레이션 버튼 끝 ── */}
 
           {/* 검색 */}
           <div style={{ marginTop: "1.5rem", marginBottom: "0.75rem" }}>
