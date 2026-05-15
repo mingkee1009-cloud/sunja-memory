@@ -102,3 +102,5 @@ export async function migrateRootMemories(uid: string): Promise<number> {
   return count;
 }
 // ── 마이그레이션 함수 끝 ──────────────────────────────────────
+
+export { migrateRootMemories as importRootMemories };
