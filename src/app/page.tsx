@@ -1,7 +1,7 @@
 <button
   type="button"
   onClick={() => {
-    if (!memory.id) return;
+    if (!memory?.id) return;
     onToggle(memory.id);
   }}
   className="w-6 h-6 flex-shrink-0 rounded-full border-2 flex items-center justify-center mt-0.5"
@@ -27,3 +27,4 @@
     </svg>
   )}
 </button>
+export default HomePage;
