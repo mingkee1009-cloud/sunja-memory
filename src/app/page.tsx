@@ -508,12 +508,18 @@ function MemoryCard({ memory, onToggle, onDelete }: { memory: Memory; onToggle: 
   const [expanded, setExpanded] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  const handleDelete = async () => {
-    if (!confirm("이 기억을 삭제할까요?")) return;
-    setDeleting(true);
-    try { await onDelete(memory.id); } finally { setDeleting(false); }
-  };
+const handleDelete = async () => {
+  if (!confirm("이 기억을 삭제할까요?")) return;
 
+  setDeleting(true);
+
+  try {
+    if (!memory.id) return;
+    await onDelete(memory.id);
+  } finally {
+    setDeleting(false);
+  }
+};
   const sourceLabel = memory.sourceType === "link" ? "🔗 링크" : memory.sourceType === "image" ? "📸 캡쳐" : memory.sourceType === "voice" ? "🎙️ 음성" : null;
 
   return (
