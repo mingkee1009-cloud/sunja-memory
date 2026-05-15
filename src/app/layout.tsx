@@ -32,6 +32,17 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
+// 이전 Service Worker 완전 해제 스크립트 (단순 문자열로 분리해 JSX 파싱 오류 방지)
+const SW_CLEANUP =
+  "if('serviceWorker' in navigator){" +
+    "navigator.serviceWorker.getRegistrations().then(function(r){" +
+      "r.forEach(function(s){s.unregister();});" +
+    "});" +
+    "caches.keys().then(function(k){" +
+      "k.forEach(function(n){caches.delete(n);});" +
+    "});" +
+  "}";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -47,6 +58,7 @@ export default function RootLayout({
         <meta name="msapplication-TileColor" content="#7c3aed" />
         <meta name="msapplication-TileImage" content="/icons/icon-192.png" />
         <meta name="theme-color" content="#7c3aed" />
+        <script dangerouslySetInnerHTML={{ __html: SW_CLEANUP }} />
       </head>
       <body className="min-h-full antialiased" suppressHydrationWarning>
         {children}
