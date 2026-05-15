@@ -405,23 +405,35 @@ export default function HomePage() {
             {saving ? "처리 중..." : isEditing ? "수정 완료" : "저장하기"}
           </button>
 
-          {/* ── 마이그레이션 버튼 (사용 후 이 블록 삭제 가능) ── */}
-          <button
-            type="button"
-            onClick={handleMigrate}
-            disabled={migrating}
-            style={{ marginTop: "0.5rem", width: "100%", padding: "0.6rem", fontSize: "0.85rem", fontWeight: 600, color: "#6b7280", background: "#f3f4f6", border: "1px dashed #d1d5db", borderRadius: "0.75rem", cursor: migrating ? "not-allowed" : "pointer", opacity: migrating ? 0.6 : 1 }}
-          >
-            {migrating ? "가져오는 중..." : "📦 기존 메모 가져오기"}
-          </button>
-          {/* ── 마이그레이션 버튼 끝 ── */}
-
           {/* 검색 */}
           <div style={{ marginTop: "1.5rem", marginBottom: "0.75rem" }}>
             <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
               placeholder="🔍  검색..."
               style={{ width: "100%", padding: "0.65rem 0.75rem", fontSize: "0.95rem", border: "1px solid #d1d5db", borderRadius: "0.75rem", boxSizing: "border-box", outline: "none" }} />
           </div>
+
+          {/* 기존 메모 가져오기 버튼 */}
+          <button
+            type="button"
+            onClick={handleMigrate}
+            disabled={migrating}
+            style={{
+              marginBottom: "0.75rem",
+              width: "100%",
+              padding: "0.6rem 1rem",
+              fontSize: "0.85rem",
+              fontWeight: 600,
+              color: migrating ? "#9ca3af" : "#7c3aed",
+              background: "#f5f3ff",
+              border: "1.5px solid #ddd6fe",
+              borderRadius: "0.75rem",
+              cursor: migrating ? "not-allowed" : "pointer",
+              opacity: migrating ? 0.6 : 1,
+              textAlign: "left",
+            }}
+          >
+            {migrating ? "⏳ 가져오는 중..." : "📦 기존 메모 가져오기"}
+          </button>
 
           {/* 카테고리 필터 */}
           <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", marginBottom: "1rem" }}>
