@@ -1,381 +1,629 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useEffect, useState } from "react";
+import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, User } from "firebase/auth";
 import {
-  createMemory,
-  getMemories,
-  updateMemory,
-  deleteMemory,
-  toggleMemoryDone,
-  importRootMemories,
-} from "@/lib/firestore";
-import { signInWithGoogle, signOut, subscribeAuth, User } from "@/lib/auth";
-import { Memory } from "@/types/memory";
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  orderBy,
+  query,
+  serverTimestamp,
+  updateDoc,
+  where,
+} from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
 
-// Web Speech API (window as any)
-type SR = {
-  lang: string; continuous: boolean; interimResults: boolean;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  onresult: ((e: any) => void) | null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  onerror: ((e: any) => void) | null;
-  onend: (() => void) | null;
-  start: () => void; stop: () => void;
+type Category = "쇼핑" | "미모마켓" | "콘텐츠" | "AI자동화" | "기타";
+
+type Memory = {
+  id: string;
+  text: string;
+  category: Category;
+  done: boolean;
+  createdAt?: any;
+  updatedAt?: any;
+  importedFromRoot?: boolean;
+  importedFromRootId?: string;
 };
 
-const CATEGORIES = ["전체","쇼핑","미모마켓","콘텐츠","AI자동화","기타"] as const;
-type CategoryFilter = (typeof CATEGORIES)[number];
-const CAT_COLOR: Record<string, {bg:string;text:string}> = {
-  쇼핑:    {bg:"#fef9c3",text:"#854d0e"},
-  미모마켓:{bg:"#fdf2f8",text:"#9d174d"},
-  콘텐츠:  {bg:"#ede9fe",text:"#5b21b6"},
-  AI자동화:{bg:"#dbeafe",text:"#1e40af"},
-  기타:    {bg:"#f3f4f6",text:"#6b7280"},
-};
-function catStyle(c:string){return CAT_COLOR[c]??CAT_COLOR["기타"];}
+const categories: ("전체" | Category)[] = ["전체", "쇼핑", "미모마켓", "콘텐츠", "AI자동화", "기타"];
 
-function MicIcon({active}:{active:boolean}){
-  return(
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={20} height={20}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-      <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round"/>
-      <line x1="8" y1="23" x2="16" y2="23" strokeLinecap="round"/>
-      {active&&<circle cx="12" cy="8" r="2.5" fill="currentColor" stroke="none"/>}
-    </svg>
-  );
-}
-
-export default function HomePage() {
-  const [user, setUser]           = useState<User|null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [text, setText]           = useState("");
-  const [saving, setSaving]       = useState(false);
-  const [memories, setMemories]   = useState<Memory[]>([]);
-  const [loading, setLoading]     = useState(false);
-  const [search, setSearch]       = useState("");
-  const [activeFilter, setActiveFilter] = useState<CategoryFilter>("전체");
-  const [editingId, setEditingId] = useState<string|null>(null);
-  const [migrating, setMigrating] = useState(false);
-  const [voiceSupported, setVoiceSupported] = useState(false);
+export default function Home() {
+  const [user, setUser] = useState<User | null>(null);
+  const [text, setText] = useState("");
+  const [category, setCategory] = useState<Category>("기타");
+  const [memories, setMemories] = useState<Memory[]>([]);
+  const [search, setSearch] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<"전체" | Category>("전체");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState("");
+  const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState(false);
-  const [interim, setInterim]     = useState("");
-  const recRef = useRef<SR|null>(null);
 
-  // 인증
-  useEffect(()=>{
-    const unsub = subscribeAuth((u)=>{setUser(u);setAuthLoading(false);});
-    return unsub;
-  },[]);
-
-  useEffect(()=>{
-    if(user) loadMemories(user.uid);
-    else setMemories([]);
-  },[user]);
-
-  // 음성 초기화
-  useEffect(()=>{
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const w = window as any;
-    const SpeechRec = w.SpeechRecognition ?? w.webkitSpeechRecognition;
-    if(!SpeechRec) return;
-    setVoiceSupported(true);
-    const rec:SR = new SpeechRec();
-    rec.lang="ko-KR"; rec.continuous=false; rec.interimResults=true;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rec.onresult=(e:any)=>{
-      let final="",inter="";
-      for(let i=0;i<e.results.length;i++){
-        const r=e.results[i];
-        if(r.isFinal) final+=r[0].transcript;
-        else inter+=r[0].transcript;
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      setUser(currentUser);
+      if (currentUser) {
+        await loadMemories(currentUser.uid);
+      } else {
+        setMemories([]);
       }
-      if(final){setText(p=>(p?p+" "+final:final).trim());setInterim("");}
-      else setInterim(inter);
-    };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rec.onerror=(e:any)=>{
-      if(e.error!=="no-speech") alert("음성 오류: "+e.error);
-      setListening(false); setInterim("");
-    };
-    rec.onend=()=>{setListening(false);setInterim("");};
-    recRef.current=rec;
-  },[]);
+    });
 
-  const toggleVoice = useCallback(()=>{
-    const rec=recRef.current; if(!rec) return;
-    if(listening){rec.stop();setListening(false);}
-    else{setInterim("");rec.start();setListening(true);}
-  },[listening]);
+    return () => unsubscribe();
+  }, []);
 
-  async function loadMemories(uid:string){
-    setLoading(true);
-    try{const data=await getMemories(uid);setMemories(data);}
-    catch(e){console.error("load failed",e);}
-    finally{setLoading(false);}
-  }
+  const login = async () => {
+    const provider = new GoogleAuthProvider();
+    await signInWithPopup(auth, provider);
+  };
 
-  // ── 기존 메모 가져오기 ────────────────────────────────────
-  async function handleImport(){
-    if(!user) return;
-    if(!confirm("루트 memories를 내 계정으로 가져올까요?")) return;
-    setMigrating(true);
-    try{
-      const count = await importRootMemories(user.uid);
-      alert(`${count}개 메모 복구 완료`);
-      await loadMemories(user.uid);
-    }catch(e){
-      alert(e instanceof Error ? e.message : "가져오기 실패");
-    }finally{
-      setMigrating(false);
+  const logout = async () => {
+    await signOut(auth);
+  };
+
+  const memoriesRef = (uid: string) => {
+    return collection(db, "users", uid, "memories");
+  };
+
+  const loadMemories = async (uid = user?.uid) => {
+    if (!uid) return;
+
+    const q = query(memoriesRef(uid), orderBy("createdAt", "desc"));
+    const snapshot = await getDocs(q);
+
+    const data = snapshot.docs.map((docSnap) => ({
+      id: docSnap.id,
+      ...docSnap.data(),
+    })) as Memory[];
+
+    setMemories(data);
+  };
+
+  const saveMemory = async () => {
+    if (!user) {
+      alert("로그인이 필요합니다.");
+      return;
     }
-  }
 
-  async function handleSave(){
-    if(!user) return;
-    const value=text.trim();
-    if(!value){alert("내용을 입력하세요");return;}
-    if(listening){recRef.current?.stop();setListening(false);}
-    setSaving(true);
-    try{
-      if(editingId){await updateMemory(user.uid,editingId,value);setEditingId(null);}
-      else{await createMemory(user.uid,value);}
-      setText("");setInterim("");
-      await loadMemories(user.uid);
-    }catch(e){alert(e instanceof Error?e.message:"저장 실패");}
-    finally{setSaving(false);}
-  }
-
-  function startEdit(m:Memory){
-    if(!m.id) return;
-    setEditingId(m.id);setText(m.rawText);
-    window.scrollTo({top:0,behavior:"smooth"});
-  }
-  function cancelEdit(){setEditingId(null);setText("");}
-
-  async function handleDelete(id:string){
-    if(!user) return;
-    if(!confirm("삭제할까요?")) return;
-    try{await deleteMemory(user.uid,id);if(editingId===id)cancelEdit();await loadMemories(user.uid);}
-    catch(e){alert(e instanceof Error?e.message:"삭제 실패");}
-  }
-
-  async function handleToggle(m:Memory){
-    if(!user||!m.id) return;
-    try{await toggleMemoryDone(user.uid,m.id,!m.isDone);await loadMemories(user.uid);}
-    catch(e){alert(e instanceof Error?e.message:"변경 실패");}
-  }
-
-  async function handleLogin(){
-    try{await signInWithGoogle();}
-    catch(e){alert(e instanceof Error?e.message:"로그인 실패");}
-  }
-  async function handleLogout(){
-    try{await signOut();setMemories([]);}
-    catch(e){alert(e instanceof Error?e.message:"로그아웃 실패");}
-  }
-
-  const displayed = useMemo(()=>{
-    let list=memories;
-    if(activeFilter!=="전체") list=list.filter(m=>m.category===activeFilter);
-    if(search.trim()){
-      const q=search.trim().toLowerCase();
-      list=list.filter(m=>
-        m.rawText?.toLowerCase().includes(q)||
-        m.summary?.toLowerCase().includes(q)||
-        m.keywords?.some(k=>k.toLowerCase().includes(q))
-      );
+    if (!text.trim()) {
+      alert("기억할 내용을 입력하세요.");
+      return;
     }
-    return list;
-  },[memories,activeFilter,search]);
 
-  const isEditing = editingId!==null;
-  const displayText = listening&&interim ? text+(text?" ":"")+interim : text;
+    await addDoc(memoriesRef(user.uid), {
+      text: text.trim(),
+      category,
+      done: false,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
 
-  if(authLoading){
-    return(
-      <div style={{maxWidth:480,margin:"0 auto",padding:"3rem 1rem",textAlign:"center",fontFamily:"sans-serif"}}>
-        <p style={{color:"#9ca3af"}}>로딩 중...</p>
-      </div>
-    );
-  }
+    setText("");
+    setCategory("기타");
+    await loadMemories(user.uid);
+  };
 
-  return(
-    <div style={{maxWidth:480,margin:"0 auto",padding:"1.5rem 1rem",fontFamily:"sans-serif"}}>
+  const deleteMemory = async (id: string) => {
+    if (!user) return;
 
-      {/* 헤더 */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"1.25rem"}}>
-        <div>
-          <h1 style={{fontSize:"1.5rem",fontWeight:700,margin:0,color:"#7c3aed"}}>기억창고</h1>
-          <p style={{fontSize:"0.8rem",color:"#9ca3af",marginTop:"0.25rem",marginBottom:0}}>
-            홈화면에 추가하면 앱처럼 사용할 수 있어요
-          </p>
-        </div>
-        {user?(
-          <div style={{display:"flex",alignItems:"center",gap:"0.5rem",flexShrink:0}}>
-            {user.photoURL&&(
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={user.photoURL} alt="프로필" width={32} height={32}
-                style={{borderRadius:"50%",border:"2px solid #7c3aed"}}/>
+    if (!confirm("삭제할까요?")) return;
+
+    await deleteDoc(doc(db, "users", user.uid, "memories", id));
+    await loadMemories(user.uid);
+  };
+
+  const toggleDone = async (memory: Memory) => {
+    if (!user) return;
+
+    await updateDoc(doc(db, "users", user.uid, "memories", memory.id), {
+      done: !memory.done,
+      updatedAt: serverTimestamp(),
+    });
+
+    await loadMemories(user.uid);
+  };
+
+  const startEdit = (memory: Memory) => {
+    setEditingId(memory.id);
+    setEditingText(memory.text);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditingText("");
+  };
+
+  const saveEdit = async (id: string) => {
+    if (!user) return;
+
+    if (!editingText.trim()) {
+      alert("수정할 내용을 입력하세요.");
+      return;
+    }
+
+    await updateDoc(doc(db, "users", user.uid, "memories", id), {
+      text: editingText.trim(),
+      updatedAt: serverTimestamp(),
+    });
+
+    setEditingId(null);
+    setEditingText("");
+    await loadMemories(user.uid);
+  };
+
+  const handleImportOldMemories = async () => {
+    if (!user) {
+      alert("로그인이 필요합니다.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const rootSnapshot = await getDocs(collection(db, "memories"));
+
+      if (rootSnapshot.empty) {
+        alert("가져올 기존 메모가 없습니다.");
+        return;
+      }
+
+      let importedCount = 0;
+      let skippedCount = 0;
+
+      for (const rootDoc of rootSnapshot.docs) {
+        const rootData = rootDoc.data();
+
+        const duplicateQuery = query(
+          memoriesRef(user.uid),
+          where("importedFromRootId", "==", rootDoc.id)
+        );
+
+        const duplicateSnapshot = await getDocs(duplicateQuery);
+
+        if (!duplicateSnapshot.empty) {
+          skippedCount++;
+          continue;
+        }
+
+        await addDoc(memoriesRef(user.uid), {
+          ...rootData,
+          text: rootData.text || rootData.content || "",
+          category: rootData.category || "기타",
+          done: rootData.done || false,
+          importedFromRoot: true,
+          importedFromRootId: rootDoc.id,
+          importedAt: serverTimestamp(),
+          createdAt: rootData.createdAt || serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+
+        importedCount++;
+      }
+
+      await loadMemories(user.uid);
+
+      alert(`기존 메모 ${importedCount}개를 가져왔습니다. 중복 ${skippedCount}개는 건너뛰었습니다.`);
+    } catch (error) {
+      console.error(error);
+      alert("기존 메모 가져오기 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const startVoiceInput = () => {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert("이 브라우저는 음성입력을 지원하지 않습니다.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "ko-KR";
+    recognition.interimResults = false;
+    recognition.continuous = false;
+
+    recognition.onstart = () => {
+      setListening(true);
+    };
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setText((prev) => (prev ? `${prev} ${transcript}` : transcript));
+    };
+
+    recognition.onerror = () => {
+      alert("음성입력 중 오류가 발생했습니다.");
+    };
+
+    recognition.onend = () => {
+      setListening(false);
+    };
+
+    recognition.start();
+  };
+
+  const formatDate = (value: any) => {
+    if (!value) return "";
+
+    try {
+      const date = value.toDate ? value.toDate() : new Date(value);
+      return date.toLocaleString("ko-KR", {
+        month: "numeric",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return "";
+    }
+  };
+
+  const filteredMemories = memories.filter((memory) => {
+    const matchesSearch = memory.text.toLowerCase().includes(search.toLowerCase());
+    const matchesCategory =
+      selectedCategory === "전체" || memory.category === selectedCategory;
+
+    return matchesSearch && matchesCategory;
+  });
+
+  return (
+    <main
+      style={{
+        maxWidth: "480px",
+        margin: "0 auto",
+        padding: "24px",
+        fontFamily:
+          "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: "8px",
+        }}
+      >
+        <h1
+          style={{
+            color: "#7c3aed",
+            fontSize: "28px",
+            fontWeight: "800",
+            margin: 0,
+          }}
+        >
+          기억창고
+        </h1>
+
+        {user ? (
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            {user.photoURL ? (
+              <img
+                src={user.photoURL}
+                alt="profile"
+                style={{
+                  width: "36px",
+                  height: "36px",
+                  borderRadius: "50%",
+                }}
+              />
+            ) : (
+              <div
+                style={{
+                  width: "36px",
+                  height: "36px",
+                  borderRadius: "50%",
+                  background: "#7c3aed",
+                  color: "white",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontWeight: "bold",
+                }}
+              >
+                {user.email?.[0]?.toUpperCase() || "U"}
+              </div>
             )}
-            <button type="button" onClick={handleLogout}
-              style={{fontSize:"0.75rem",fontWeight:600,padding:"0.3rem 0.7rem",border:"1px solid #e5e7eb",borderRadius:"0.5rem",background:"#fff",color:"#6b7280",cursor:"pointer"}}>
+
+            <button
+              onClick={logout}
+              style={{
+                border: "1px solid #ddd",
+                background: "white",
+                borderRadius: "10px",
+                padding: "8px 12px",
+                cursor: "pointer",
+              }}
+            >
               로그아웃
             </button>
           </div>
-        ):(
-          <button type="button" onClick={handleLogin}
-            style={{display:"flex",alignItems:"center",gap:"0.4rem",fontSize:"0.85rem",fontWeight:700,padding:"0.45rem 0.9rem",border:"none",borderRadius:"0.6rem",background:"#7c3aed",color:"#fff",cursor:"pointer",flexShrink:0}}>
+        ) : (
+          <button
+            onClick={login}
+            style={{
+              background: "#7c3aed",
+              color: "white",
+              border: "none",
+              borderRadius: "10px",
+              padding: "10px 14px",
+              fontWeight: "bold",
+              cursor: "pointer",
+            }}
+          >
             Google 로그인
           </button>
         )}
       </div>
 
-      {/* 비로그인 */}
-      {!user&&(
-        <div style={{padding:"2rem 1rem",textAlign:"center",background:"#f9fafb",borderRadius:"1rem",border:"1px solid #e5e7eb"}}>
-          <p style={{fontSize:"2rem",margin:"0 0 0.75rem"}}>🔒</p>
-          <p style={{fontWeight:700,color:"#374151",marginBottom:"0.4rem"}}>로그인이 필요해요</p>
-          <p style={{fontSize:"0.85rem",color:"#9ca3af",marginBottom:"1.25rem"}}>
-            Google 계정으로 로그인하면<br/>어디서든 메모를 확인할 수 있어요
-          </p>
-          <button type="button" onClick={handleLogin}
-            style={{fontSize:"0.95rem",fontWeight:700,padding:"0.65rem 1.5rem",border:"none",borderRadius:"0.75rem",background:"#7c3aed",color:"#fff",cursor:"pointer"}}>
-            Google로 시작하기
-          </button>
-        </div>
-      )}
+      <p style={{ color: "#8b8b9a", marginTop: 0, marginBottom: "20px" }}>
+        홈화면에 추가하면 앱처럼 사용할 수 있어요
+      </p>
 
-      {/* 로그인 상태 */}
-      {user&&(
-        <>
-          {/* ━━━━━ 기존 메모 가져오기 버튼 ━━━━━ */}
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="기억할 내용을 입력하세요..."
+        style={{
+          width: "100%",
+          height: "120px",
+          border: "1px solid #d6d6e0",
+          borderRadius: "14px",
+          padding: "16px",
+          fontSize: "16px",
+          boxSizing: "border-box",
+          resize: "vertical",
+          outlineColor: "#7c3aed",
+        }}
+      />
+
+      <div
+        style={{
+          display: "flex",
+          gap: "8px",
+          marginTop: "10px",
+          marginBottom: "12px",
+          flexWrap: "wrap",
+        }}
+      >
+        {categories
+          .filter((item) => item !== "전체")
+          .map((item) => (
+            <button
+              key={item}
+              onClick={() => setCategory(item as Category)}
+              style={{
+                border: "none",
+                borderRadius: "999px",
+                padding: "8px 12px",
+                fontWeight: "bold",
+                cursor: "pointer",
+                background: category === item ? "#7c3aed" : "#f3f3f6",
+                color: category === item ? "white" : "#111827",
+              }}
+            >
+              {item}
+            </button>
+          ))}
+      </div>
+
+      <button
+        onClick={startVoiceInput}
+        style={{
+          width: "100%",
+          background: listening ? "#ef4444" : "#f3f3f6",
+          color: listening ? "white" : "#111827",
+          border: "none",
+          borderRadius: "12px",
+          padding: "12px",
+          fontSize: "15px",
+          fontWeight: "bold",
+          marginBottom: "10px",
+          cursor: "pointer",
+        }}
+      >
+        {listening ? "🎙 듣는 중..." : "🎙 음성입력"}
+      </button>
+
+      <button
+        onClick={saveMemory}
+        style={{
+          width: "100%",
+          background: "#7c3aed",
+          color: "white",
+          border: "none",
+          borderRadius: "12px",
+          padding: "15px",
+          fontSize: "17px",
+          fontWeight: "bold",
+          marginBottom: "14px",
+          cursor: "pointer",
+        }}
+      >
+        저장하기
+      </button>
+
+      <button
+        onClick={handleImportOldMemories}
+        disabled={loading}
+        style={{
+          width: "100%",
+          background: "#6d28d9",
+          color: "white",
+          border: "none",
+          borderRadius: "12px",
+          padding: "15px",
+          fontSize: "16px",
+          fontWeight: "bold",
+          marginBottom: "22px",
+          cursor: loading ? "not-allowed" : "pointer",
+          opacity: loading ? 0.7 : 1,
+        }}
+      >
+        📦 기존 메모 가져오기
+      </button>
+
+      <input
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="🔍 검색..."
+        style={{
+          width: "100%",
+          border: "1px solid #d6d6e0",
+          borderRadius: "14px",
+          padding: "14px 16px",
+          fontSize: "16px",
+          boxSizing: "border-box",
+          marginBottom: "12px",
+          outlineColor: "#7c3aed",
+        }}
+      />
+
+      <div
+        style={{
+          display: "flex",
+          gap: "8px",
+          flexWrap: "wrap",
+          marginBottom: "18px",
+        }}
+      >
+        {categories.map((item) => (
           <button
-            type="button"
-            onClick={handleImport}
-            disabled={migrating}
+            key={item}
+            onClick={() => setSelectedCategory(item)}
             style={{
-              display:"block",
-              width:"100%",
-              padding:"14px",
-              marginBottom:"12px",
-              fontSize:"1rem",
-              fontWeight:700,
-              color:"#ffffff",
-              background: migrating ? "#a5b4fc" : "#7c3aed",
-              border:"none",
-              borderRadius:"12px",
-              cursor: migrating ? "not-allowed" : "pointer",
-              opacity: migrating ? 0.7 : 1,
+              border: "none",
+              borderRadius: "999px",
+              padding: "8px 12px",
+              fontWeight: "bold",
+              cursor: "pointer",
+              background: selectedCategory === item ? "#7c3aed" : "#f3f3f6",
+              color: selectedCategory === item ? "white" : "#111827",
             }}
           >
-            {migrating ? "⏳ 가져오는 중..." : "📦 기존 메모 가져오기"}
+            {item}
           </button>
-          {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+        ))}
+      </div>
 
-          {/* 수정 중 배너 */}
-          {isEditing&&(
-            <div style={{marginBottom:"0.75rem",padding:"0.6rem 1rem",background:"#fef9c3",border:"1px solid #fde68a",borderRadius:"0.75rem",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <span style={{fontSize:"0.85rem",fontWeight:600,color:"#92400e"}}>✏️ 수정 중</span>
-              <button type="button" onClick={cancelEdit} style={{fontSize:"0.8rem",color:"#6b7280",background:"none",border:"none",cursor:"pointer"}}>취소</button>
-            </div>
-          )}
+      <p style={{ color: "#8b8b9a", marginBottom: "10px" }}>
+        전체 {filteredMemories.length}개
+      </p>
 
-          {/* 입력 */}
-          <div style={{position:"relative"}}>
-            <textarea
-              value={displayText}
-              onChange={e=>{if(!listening)setText(e.target.value);}}
-              onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();handleSave();}}}
-              placeholder={listening?"🎙 말씀하세요...":"기억할 내용을 입력하세요..."}
-              rows={4}
-              style={{width:"100%",padding:"0.75rem 3rem 0.75rem 0.75rem",fontSize:"1rem",border:`1.5px solid ${listening?"#7c3aed":isEditing?"#f59e0b":"#d1d5db"}`,borderRadius:"0.75rem",resize:"vertical",boxSizing:"border-box",outline:"none",color:listening&&interim?"#9ca3af":"#111827"}}
-            />
-            {voiceSupported&&(
-              <button type="button" onClick={toggleVoice}
-                style={{position:"absolute",right:"0.6rem",top:"0.6rem",width:36,height:36,border:"none",borderRadius:"50%",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",background:listening?"#7c3aed":"#ede9fe",color:listening?"#fff":"#7c3aed",boxShadow:listening?"0 0 0 3px rgba(124,58,237,0.25)":"none"}}>
-                <MicIcon active={listening}/>
-              </button>
+      <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+        {filteredMemories.map((memory) => (
+          <div
+            key={memory.id}
+            style={{
+              border: "1px solid #e5e7eb",
+              borderRadius: "14px",
+              padding: "16px",
+              background: "white",
+            }}
+          >
+            <span
+              style={{
+                display: "inline-block",
+                background: "#f3f3f6",
+                borderRadius: "999px",
+                padding: "5px 10px",
+                fontSize: "12px",
+                fontWeight: "bold",
+                marginBottom: "10px",
+              }}
+            >
+              {memory.category || "기타"}
+            </span>
+
+            {editingId === memory.id ? (
+              <>
+                <textarea
+                  value={editingText}
+                  onChange={(e) => setEditingText(e.target.value)}
+                  style={{
+                    width: "100%",
+                    minHeight: "80px",
+                    border: "1px solid #d6d6e0",
+                    borderRadius: "10px",
+                    padding: "10px",
+                    fontSize: "15px",
+                    boxSizing: "border-box",
+                    marginBottom: "10px",
+                  }}
+                />
+
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button onClick={() => saveEdit(memory.id)} style={smallButton("#7c3aed", "white")}>
+                    저장
+                  </button>
+                  <button onClick={cancelEdit} style={smallButton("#f3f3f6", "#111827")}>
+                    취소
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p
+                  style={{
+                    fontSize: "16px",
+                    fontWeight: "700",
+                    margin: "0 0 8px 0",
+                    textDecoration: memory.done ? "line-through" : "none",
+                    color: memory.done ? "#9ca3af" : "#111827",
+                    whiteSpace: "pre-wrap",
+                  }}
+                >
+                  {memory.text}
+                </p>
+
+                <p
+                  style={{
+                    color: "#9ca3af",
+                    fontSize: "13px",
+                    margin: "0 0 12px 0",
+                  }}
+                >
+                  {formatDate(memory.createdAt)}
+                </p>
+
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  <button onClick={() => toggleDone(memory)} style={smallButton("#ede9fe", "#6d28d9")}>
+                    {memory.done ? "↩ 미완료" : "✓ 완료"}
+                  </button>
+
+                  <button onClick={() => startEdit(memory)} style={smallButton("#fef3c7", "#92400e")}>
+                    ✏ 수정
+                  </button>
+
+                  <button onClick={() => deleteMemory(memory.id)} style={smallButton("#fee2e2", "#991b1b")}>
+                    🗑 삭제
+                  </button>
+                </div>
+              </>
             )}
           </div>
-          {listening&&<p style={{fontSize:"0.8rem",color:"#7c3aed",marginTop:"0.4rem",fontWeight:600}}>🎙 음성 인식 중...</p>}
-          {!voiceSupported&&<p style={{fontSize:"0.75rem",color:"#9ca3af",marginTop:"0.3rem"}}>이 브라우저는 음성 입력을 지원하지 않아요 (Chrome/Edge 권장)</p>}
-
-          <button type="button" onClick={handleSave} disabled={saving}
-            style={{marginTop:"0.6rem",width:"100%",padding:"0.75rem",fontSize:"1rem",fontWeight:700,color:"#fff",background:saving?"#a5b4fc":isEditing?"#f59e0b":"#7c3aed",border:"none",borderRadius:"0.75rem",cursor:saving?"not-allowed":"pointer",opacity:saving?0.7:1}}>
-            {saving?"처리 중...":isEditing?"수정 완료":"저장하기"}
-          </button>
-
-          {/* 검색 */}
-          <div style={{marginTop:"1.5rem",marginBottom:"0.75rem"}}>
-            <input type="text" value={search} onChange={e=>setSearch(e.target.value)}
-              placeholder="🔍  검색..."
-              style={{width:"100%",padding:"0.65rem 0.75rem",fontSize:"0.95rem",border:"1px solid #d1d5db",borderRadius:"0.75rem",boxSizing:"border-box",outline:"none"}}/>
-          </div>
-
-          {/* 카테고리 필터 */}
-          <div style={{display:"flex",gap:"0.4rem",flexWrap:"wrap",marginBottom:"1rem"}}>
-            {CATEGORIES.map(cat=>{
-              const active=activeFilter===cat;
-              return(
-                <button key={cat} type="button" onClick={()=>setActiveFilter(cat)}
-                  style={{padding:"0.3rem 0.8rem",fontSize:"0.8rem",fontWeight:700,border:"none",borderRadius:"999px",cursor:"pointer",background:active?"#7c3aed":"#f3f4f6",color:active?"#fff":"#374151"}}>
-                  {cat}
-                </button>
-              );
-            })}
-          </div>
-
-          <p style={{fontSize:"0.85rem",color:"#9ca3af",marginBottom:"0.6rem"}}>
-            {activeFilter==="전체"?"전체":activeFilter} {displayed.length}개
-          </p>
-
-          {/* 목록 */}
-          {loading?(
-            <p style={{color:"#9ca3af"}}>불러오는 중...</p>
-          ):displayed.length===0?(
-            <p style={{color:"#9ca3af"}}>메모가 없어요</p>
-          ):(
-            displayed.map(m=>{
-              if(!m.id) return null;
-              const id=m.id;
-              const done=m.isDone;
-              const cs=catStyle(m.category);
-              const ts=m.createdAt?.seconds
-                ?new Date(m.createdAt.seconds*1000).toLocaleString("ko-KR",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})
-                :"";
-              return(
-                <div key={id} style={{padding:"0.9rem 1rem",marginBottom:"0.6rem",background:editingId===id?"#fffbeb":"#f9fafb",borderRadius:"0.75rem",border:`1px solid ${editingId===id?"#f59e0b":"#e5e7eb"}`,opacity:done?0.5:1,transition:"opacity 0.2s"}}>
-                  <span style={{display:"inline-block",fontSize:"0.72rem",fontWeight:700,padding:"0.15rem 0.55rem",borderRadius:"999px",marginBottom:"0.35rem",background:cs.bg,color:cs.text}}>
-                    {m.category}
-                  </span>
-                  <div style={{fontSize:"0.95rem",fontWeight:600,textDecoration:done?"line-through":"none",color:done?"#9ca3af":"#111827",lineHeight:1.45}}>
-                    {m.summary||m.rawText}
-                  </div>
-                  {m.summary&&m.rawText!==m.summary&&(
-                    <div style={{fontSize:"0.8rem",color:"#6b7280",marginTop:"0.2rem"}}>{m.rawText}</div>
-                  )}
-                  <div style={{fontSize:"0.75rem",color:"#9ca3af",marginTop:"0.3rem"}}>{ts}</div>
-                  <div style={{display:"flex",gap:"0.45rem",marginTop:"0.6rem",flexWrap:"wrap"}}>
-                    <button type="button" onClick={()=>handleToggle(m)}
-                      style={{padding:"0.25rem 0.65rem",fontSize:"0.78rem",fontWeight:600,border:"none",borderRadius:"0.5rem",cursor:"pointer",background:done?"#d1fae5":"#ede9fe",color:done?"#065f46":"#5b21b6"}}>
-                      {done?"✅ 완료됨":"⬜ 완료"}
-                    </button>
-                    <button type="button" onClick={()=>startEdit(m)}
-                      style={{padding:"0.25rem 0.65rem",fontSize:"0.78rem",fontWeight:600,border:"none",borderRadius:"0.5rem",cursor:"pointer",background:"#fef9c3",color:"#92400e"}}>
-                      ✏️ 수정
-                    </button>
-                    <button type="button" onClick={()=>handleDelete(id)}
-                      style={{padding:"0.25rem 0.65rem",fontSize:"0.78rem",fontWeight:600,border:"none",borderRadius:"0.5rem",cursor:"pointer",background:"#fee2e2",color:"#991b1b"}}>
-                      🗑 삭제
-                    </button>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </>
-      )}
-    </div>
+        ))}
+      </div>
+    </main>
   );
+}
+
+function smallButton(background: string, color: string) {
+  return {
+    background,
+    color,
+    border: "none",
+    borderRadius: "8px",
+    padding: "8px 12px",
+    fontSize: "13px",
+    fontWeight: "bold",
+    cursor: "pointer",
+  };
 }

@@ -6,6 +6,7 @@ import {
   deleteDoc,
   getDocs,
   query,
+  where,
   orderBy,
   serverTimestamp,
 } from "firebase/firestore";
@@ -79,8 +80,7 @@ export async function deleteMemory(uid: string, id: string): Promise<void> {
   await deleteDoc(memDoc(uid, id));
 }
 
-// ── 루트 memories → users/{uid}/memories 마이그레이션 ────────
-// 사용 후 이 함수와 버튼을 제거하려면 여기서부터 아래 주석까지 삭제
+// root memories -> users/{uid}/memories migration
 export async function migrateRootMemories(uid: string): Promise<number> {
   const rootSnap = await getDocs(collection(db, "memories"));
 
@@ -90,17 +90,25 @@ export async function migrateRootMemories(uid: string): Promise<number> {
   const dest = memCol(uid);
 
   for (const rootDoc of rootSnap.docs) {
+    // duplicate check: skip if already imported
+    const dupQ = query(dest, where("importedFromRootId", "==", rootDoc.id));
+    const dupSnap = await getDocs(dupQ);
+    if (!dupSnap.empty) {
+      console.log("skip duplicate:", rootDoc.id);
+      continue;
+    }
+
     const data = rootDoc.data();
     await addDoc(dest, {
       ...data,
-      importedFromRoot: true,
-      importedAt: serverTimestamp(),
+      importedFromRootId: rootDoc.id,
+      importedFromRoot:   true,
+      importedAt:         serverTimestamp(),
     });
     count++;
   }
 
   return count;
 }
-// ── 마이그레이션 함수 끝 ──────────────────────────────────────
 
 export { migrateRootMemories as importRootMemories };
